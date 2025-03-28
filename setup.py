@@ -10,6 +10,8 @@ setup(
         "openai>=1.0.0",
         "python-dotenv>=0.19.0",
         "sentence-transformers>=2.2.0",  # For local embeddings
+        "faiss-cpu>=1.7.4",  # For vector storage
+        "numpy>=1.24.0",  # Required by FAISS
     ],
     extras_require={
         "dev": [
