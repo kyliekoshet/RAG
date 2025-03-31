@@ -115,6 +115,15 @@ class HybridStore(BaseVectorStore):
             # Consider caching frequently accessed vectors
             self._update_cache(results)
             
+        # Ensure score and distance are present for all results
+        for result in results:
+            if not hasattr(result, 'score') and hasattr(result, 'distance'):
+                # If we have distance but no score, calculate score from distance (for FAISS)
+                setattr(result, 'score', 1.0 - result.distance)
+            elif not hasattr(result, 'distance') and hasattr(result, 'score'):
+                # If we have score but no distance, calculate distance from score (for Qdrant)
+                setattr(result, 'distance', 1.0 - result.score)
+            
         return results
 
     def _update_cache(self, results: List[VectorMetadata]):

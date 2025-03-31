@@ -131,10 +131,20 @@ class QdrantStore(BaseVectorStore):
         )
         
         # Convert results to metadata
-        return [
-            VectorMetadata.from_dict(hit.payload)
-            for hit in results
-        ]
+        metadata_results = []
+        for hit in results:
+            # Create VectorMetadata object from payload
+            metadata = VectorMetadata.from_dict(hit.payload)
+            
+            # Add score as a property
+            metadata.score = hit.score
+            
+            # Calculate distance (1 - score for cosine similarity)
+            metadata.distance = 1.0 - hit.score
+            
+            metadata_results.append(metadata)
+            
+        return metadata_results
     
     def get_stats(self) -> Dict[str, Union[int, str]]:
         """Get statistics about the store.

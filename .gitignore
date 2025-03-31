@@ -25,18 +25,15 @@ wheels/
 
 # Virtual environment
 .venv/
-venv/
-ENV/
+
 
 # Testing
 .pytest_cache/
-.coverage
-htmlcov/
+
 
 # Environment variables
 .env
-.env.*
-!config/default.env
+
 
 # IDE
 .vscode/
@@ -51,8 +48,3 @@ qdrant_storage/
 # HuggingFace cache
 .cache/
 .huggingface/
-
-# Temporary files
-*.tmp
-temp/
-*.logconfig/default.env

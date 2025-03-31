@@ -9,11 +9,8 @@ class ClinicalBERTEmbedder:
         self.model = AutoModel.from_pretrained("emilyalsentzer/Bio_ClinicalBERT")
 
     def embed_text(self, text):
-        # Tokenize input
-        inputs = self.tokenizer(text, return_tensors="pt")
-        
-        # Get embeddings
+        inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True)
         outputs = self.model(**inputs)
-        embeddings = outputs.last_hidden_state
-        
-        return embeddings
+        # Use the embedding of the [CLS] token (first token)
+        cls_embedding = outputs.last_hidden_state[:, 0, :]
+        return cls_embedding
