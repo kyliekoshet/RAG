@@ -10,6 +10,7 @@ from openai import OpenAI
 import os
 from sentence_transformers import SentenceTransformer
 from ..core.config import RAGConfig, default_config
+from .clinical_bert import ClinicalBERTEmbedder
 
 # Check if OpenAI API is enabled
 api_enabled = os.getenv("ENABLE_OPENAI_API", "false").lower() == "true"
@@ -56,6 +57,8 @@ class TextEmbedder:
             
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
             self.client = OpenAI(api_key=self.api_key)
+        elif self.provider == "clinical_bert":
+            self.model = ClinicalBERTEmbedder()
         else:  # huggingface
             self.model = SentenceTransformer(
                 self.model_name,
@@ -80,6 +83,9 @@ class TextEmbedder:
                     encoding_format="float"
                 )
                 return response.data[0].embedding
+            elif self.provider == "clinical_bert":
+                embedding = self.model.embed_text(text)
+                return embedding.tolist()
             else:  # huggingface
                 embedding = self.model.encode(text)
                 return embedding.tolist()
@@ -103,6 +109,9 @@ class TextEmbedder:
                     encoding_format="float"
                 )
                 return [data.embedding for data in response.data]
+            elif self.provider == "clinical_bert":
+                embeddings = self.model.embed_text(texts)
+                return embeddings.tolist()
             else:  # huggingface
                 embeddings = self.model.encode(texts)
                 return embeddings.tolist()

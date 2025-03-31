@@ -16,6 +16,8 @@ setup(
         "python-dotenv>=1.0.0",
         "pytest>=8.0.0",
         "openai>=1.12.0",
+        "transformers>=4.36.0",
+        "torch>=2.1.0"
     ],
     python_requires=">=3.8",
     description="RAG (Retrieval Augmented Generation) system with support for multiple embedding providers",
