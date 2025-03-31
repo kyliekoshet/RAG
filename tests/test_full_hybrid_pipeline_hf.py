@@ -1,28 +1,37 @@
-# tests/test_full_hybrid_pipeline.py
+# tests/test_full_hybrid_pipeline_hf.py
 
 import numpy as np
 import pytest
-from rag.embeddings.clinical_bert import ClinicalBERTEmbedder
+from rag.embeddings.providers import TextEmbedder
 from rag.storage.hybrid_store import HybridStore
 from rag.processing.text_chunker import TextChunker
 from rag.core.models.vector_store_models import VectorMetadata
+from rag.core.config import RAGConfig, EmbeddingConfig
 
 @pytest.fixture
 def embedder():
-    return ClinicalBERTEmbedder()
+    # Use a larger model with better semantic capabilities for medical text
+    config = RAGConfig(
+        embedding=EmbeddingConfig(
+            provider="huggingface",
+            model_name="sentence-transformers/all-mpnet-base-v2",  # Higher quality than MiniLM
+            dimension=768  # MPNet has 768 dimensions
+        )
+    )
+    return TextEmbedder(config=config)
 
 @pytest.fixture
 def hybrid_store():
-    # Initialize with the correct dimension for ClinicalBERT
+    # Initialize with the correct dimension for huggingface
     # Using a test collection to avoid conflicts with production data
     return HybridStore(
         dimension=768, 
-        collection_name="test_hybrid_clinicalbert",
+        collection_name="test_hybrid_hf",
         cache_size=100  # Smaller cache for testing
     )
 
 def test_full_pipeline(embedder, hybrid_store):
-    print("\n===== FULL RAG PIPELINE TEST WITH CLINICAL BERT AND HYBRID STORE =====\n")
+    print("\n===== FULL RAG PIPELINE TEST WITH HUGGINGFACE AND HYBRID STORE =====\n")
     
     # Example text
     print("Step 1: Preparing sample clinical texts...")
@@ -50,13 +59,15 @@ def test_full_pipeline(embedder, hybrid_store):
     print(f"- Created {len(all_chunks)} text chunks")
 
     # Generate embeddings
-    print("\nStep 3: Generating embeddings with ClinicalBERT...")
-    embeddings = [embedder.embed_text(chunk).detach().numpy() for chunk in all_chunks]
+    print("\nStep 3: Generating embeddings with Hugging Face model...")
+    # Use the batch embedding method for efficiency
+    embeddings = embedder.embed_texts(all_chunks)
     
-    # Stack embeddings into a 2D numpy array
-    embeddings_np = np.vstack(embeddings)
+    # Convert to numpy array
+    embeddings_np = np.array(embeddings, dtype=np.float32)
     print(f"- Generated embeddings with shape: {embeddings_np.shape}")
     print(f"- Embedding dimension: {embeddings_np.shape[1]}")
+    print(f"- Using model: {embedder.model_name}")
 
     # Add embeddings to the Hybrid Store
     print("\nStep 4: Storing embeddings in Hybrid Store (FAISS + Qdrant)...")
@@ -66,7 +77,7 @@ def test_full_pipeline(embedder, hybrid_store):
         VectorMetadata(
             text=chunk, 
             source="test", 
-            embedding_model="ClinicalBERT"
+            embedding_model="HuggingFace"
         ) 
         for chunk in all_chunks
     ]
@@ -89,8 +100,11 @@ def test_full_pipeline(embedder, hybrid_store):
     print(f"- Stored {len(ids)} vectors in Hybrid Store with IDs: {ids[:5]}...")
 
     # TEST 1: Basic similarity search
-    print("\nTEST 1: Basic similarity search with first text as query")
-    query_vector = embeddings_np[0]  # Use the first embedding as the query
+    query_text = "What medications should I take for diabetes?"
+    print(f"\nTEST 1: Basic similarity search with first text: {query_text}")
+    query_embedding = embedder.embed_text(query_text)
+    query_vector = np.array(query_embedding, dtype=np.float32)
+    
     results = hybrid_store.search_vector(query_vector, k=5)
     
     # Assertions
@@ -110,27 +124,20 @@ def test_full_pipeline(embedder, hybrid_store):
         print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
         
     # TEST 2: Different query
-    print("\nTEST 2: Using a different query (headache text)")
-    # Find the headache text
-    headache_index = None
-    for i, text in enumerate(all_chunks):
-        if "headache" in text.lower():
-            headache_index = i
-            break
-            
-    if headache_index is not None:
-        query_vector = embeddings_np[headache_index]
-        print(f"- Using query about headaches: \"{all_chunks[headache_index][:50]}...\"")
-        results = hybrid_store.search_vector(query_vector, k=3)
-        
-        print("\nHeadache search results:")
-        for i, result in enumerate(results):
-            print(f"Result {i+1}:")
-            print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
-            print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
-            print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
-    else:
-        print("- Headache text not found in chunks")
+    print("\nTEST 2: Using a different query (headache search)")
+    query_text = "I'm experiencing severe headaches with light sensitivity"
+    query_embedding = embedder.embed_text(query_text)
+    query_vector = np.array(query_embedding, dtype=np.float32)
+    
+    results = hybrid_store.search_vector(query_vector, k=3)
+    
+    print(f"\nQuery: '{query_text}'")
+    print("\nHeadache search results:")
+    for i, result in enumerate(results):
+        print(f"Result {i+1}:")
+        print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
+        print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
+        print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
     
     # TEST 3: Filtered search (testing Qdrant's capabilities)
     print("\nTEST 3: Filtered search (only texts with 'diabetes')")

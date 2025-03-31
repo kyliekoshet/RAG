@@ -10,11 +10,11 @@ Benefits:
 - REST API included
 """
 
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchText
 from ..core.models.vector_store_models import VectorMetadata
 from ..core.config import RAGConfig, default_config
 from .base_store import BaseVectorStore
@@ -95,7 +95,8 @@ class QdrantStore(BaseVectorStore):
         self,
         vector: np.ndarray,
         k: int = 5,
-        filter: Optional[Dict[str, str]] = None
+        filter: Optional[Dict[str, Any]] = None,
+        content_filter: Optional[str] = None
     ) -> List[VectorMetadata]:
         """Search for similar vectors.
         
@@ -103,21 +104,36 @@ class QdrantStore(BaseVectorStore):
             vector: Query vector
             k: Number of results to return
             filter: Optional metadata filter
+            content_filter: Optional text content to filter by (will search in 'text' field)
             
         Returns:
             List of metadata for similar vectors
         """
         # Convert filter to Qdrant format
         search_filter = None
-        if filter:
+        if filter or content_filter:
             conditions = []
-            for key, value in filter.items():
+            
+            # Add standard key-value filters
+            if filter:
+                for key, value in filter.items():
+                    conditions.append(
+                        FieldCondition(
+                            key=key,
+                            match=MatchValue(value=value)
+                        )
+                    )
+            
+            # Add text content filter if provided
+            if content_filter:
+                # Use Qdrant's text match capabilities to filter by text content
                 conditions.append(
                     FieldCondition(
-                        key=key,
-                        match=MatchValue(value=value)
+                        key="text",
+                        match=MatchText(text=content_filter)
                     )
                 )
+                
             search_filter = Filter(
                 must=conditions
             )
