@@ -9,6 +9,7 @@ from rag.storage.faiss_store import FaissStore  # Correct class name
 from rag.processing.text_chunker import TextChunker
 from rag.core.models.vector_store_models import VectorMetadata
 from rag.core.config import RAGConfig, EmbeddingConfig
+from rag.storage.hybrid_store import HybridStore
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,11 +38,12 @@ def embedder():
 
 @pytest.fixture
 def vector_store():
-    # Initialize with the correct dimension for OpenAI embeddings
     config = RAGConfig()
-    config.vector_store.faiss.index_type = "cosine"  # Use cosine similarity
-    return FaissStore(
-        dimension=1536,  # Dimension for text-embedding-3-small
+    config.vector_store.faiss.index_type = "cosine"
+    config.vector_store.qdrant.collection_name = "test_openai_hybrid"
+    config.vector_store.qdrant.url = "http://localhost:6333"
+    return HybridStore(
+        dimension=1536,
         config=config
     )
 
@@ -134,7 +136,8 @@ def test_full_pipeline(embedder, vector_store):
     
     ids = vector_store.add_vectors(embeddings_np, metadata)
     print(f"- Stored {len(ids)} vectors with IDs: {ids[:5]}...")
-    print(f"- Vector store contains {vector_store.index.ntotal} vectors")
+    stats = vector_store.get_stats()
+    print(f"- Vector store stats: {stats}")
 
     # TEST 1: Basic similarity search
     print("\nTEST 1: Basic similarity search with first text as query")
