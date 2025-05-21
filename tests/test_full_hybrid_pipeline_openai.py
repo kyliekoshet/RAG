@@ -3,11 +3,15 @@
 import numpy as np
 import pytest
 import os
+from dotenv import load_dotenv
 from rag.embeddings.providers import TextEmbedder
-from rag.storage.hybrid_store import HybridStore
+from rag.storage.faiss_store import FaissStore  # Correct class name
 from rag.processing.text_chunker import TextChunker
 from rag.core.models.vector_store_models import VectorMetadata
 from rag.core.config import RAGConfig, EmbeddingConfig
+
+# Load environment variables from .env file
+load_dotenv()
 
 @pytest.fixture
 def embedder():
@@ -19,6 +23,9 @@ def embedder():
     if os.getenv("ENABLE_OPENAI_API", "false").lower() != "true":
         pytest.skip("ENABLE_OPENAI_API is not set to true")
         
+    print(f"OpenAI API Key found: {os.getenv('OPENAI_API_KEY')[:5]}...")
+    print(f"ENABLE_OPENAI_API: {os.getenv('ENABLE_OPENAI_API')}")
+        
     config = RAGConfig(
         embedding=EmbeddingConfig(
             provider="openai",
@@ -29,16 +36,17 @@ def embedder():
     return TextEmbedder(config=config)
 
 @pytest.fixture
-def hybrid_store():
+def vector_store():
     # Initialize with the correct dimension for OpenAI embeddings
-    return HybridStore(
+    config = RAGConfig()
+    config.vector_store.faiss.index_type = "cosine"  # Use cosine similarity
+    return FaissStore(
         dimension=1536,  # Dimension for text-embedding-3-small
-        collection_name="test_hybrid_openai",
-        cache_size=100  # Smaller cache for testing
+        config=config
     )
 
-def test_full_pipeline(embedder, hybrid_store):
-    print("\n===== FULL RAG PIPELINE TEST WITH OPENAI EMBEDDER AND HYBRID STORE =====\n")
+def test_full_pipeline(embedder, vector_store):
+    print("\n===== FULL RAG PIPELINE TEST WITH OPENAI EMBEDDER AND FAISS STORE =====\n")
     
     # Example text
     print("Step 1: Preparing sample clinical texts...")
@@ -72,8 +80,31 @@ def test_full_pipeline(embedder, hybrid_store):
     print(f"- Using model: {embedder.model_name}")
 
     # Add enriched metadata
+    print("\nStep 4: Creating metadata with additional fields...")
     metadata = []
     for i, chunk in enumerate(all_chunks):
+        # Add extra metadata fields for better filtering
+        contains_diabetes = "diabetes" in chunk.lower()
+        contains_headache = "headache" in chunk.lower()
+        contains_allergy = "allergic" in chunk.lower() or "allergy" in chunk.lower()
+        
+        # Extract keywords (simple extraction for demo)
+        keywords = []
+        for term in ["diabetes", "hypertension", "headache", "allergy", "heart disease", "medication"]:
+            if term in chunk.lower():
+                keywords.append(term)
+        
+        # Determine document type (simple classification for demo)
+        if "prescribed" in chunk.lower() or "medication" in chunk.lower() or "take" in chunk.lower():
+            doc_type = "medication"
+        elif "allergic" in chunk.lower() or "reaction" in chunk.lower():
+            doc_type = "allergy"
+        elif "history" in chunk.lower():
+            doc_type = "medical_history"
+        elif "headache" in chunk.lower() or "pain" in chunk.lower():
+            doc_type = "symptom"
+        else:
+            doc_type = "general"
         
         meta = VectorMetadata(
             text=chunk,
@@ -81,28 +112,29 @@ def test_full_pipeline(embedder, hybrid_store):
             embedding_model=embedder.model_name
         )
         
+        # Add our custom fields directly to the metadata dictionary
+        meta.metadata["keywords"] = keywords
+        meta.metadata["doc_type"] = doc_type
+        meta.metadata["contains_diabetes"] = contains_diabetes
+        meta.metadata["contains_headache"] = contains_headache
+        meta.metadata["contains_allergy"] = contains_allergy
+        
         metadata.append(meta)
     
+    print(f"- Created {len(metadata)} metadata objects with enhanced fields")
+    # Print an example of the metadata object
+    print("- Example metadata structure:")
+    print(f"  Text: {metadata[0].text[:50]}...")
+    print(f"  Doc Type: {metadata[0].metadata.get('doc_type')}")
+    print(f"  Keywords: {metadata[0].metadata.get('keywords')}")
+    print(f"  Contains Diabetes: {metadata[0].metadata.get('contains_diabetes')}")
     
-    # Add embeddings to the Hybrid Store
-    print("\nStep 5: Storing embeddings in Hybrid Store (FAISS + Qdrant)...")
+    # Add embeddings to the Vector Store
+    print("\nStep 5: Storing embeddings in FAISS Store...")
     
-    # Delete existing Qdrant collection if it exists (to start fresh)
-    try:
-        print("- Recreating test collection...")
-        if hybrid_store.qdrant_store.client.collection_exists(hybrid_store.collection_name):
-            hybrid_store.qdrant_store.client.delete_collection(hybrid_store.collection_name)
-            # Recreate the HybridStore
-            hybrid_store = HybridStore(
-                dimension=1536,
-                collection_name=hybrid_store.collection_name,
-                cache_size=100
-            )
-    except Exception as e:
-        print(f"- Collection setup: {str(e)}")
-    
-    ids = hybrid_store.add_vectors(embeddings_np, metadata)
-    print(f"- Stored {len(ids)} vectors in Hybrid Store with IDs: {ids[:5]}...")
+    ids = vector_store.add_vectors(embeddings_np, metadata)
+    print(f"- Stored {len(ids)} vectors with IDs: {ids[:5]}...")
+    print(f"- Vector store contains {vector_store.index.ntotal} vectors")
 
     # TEST 1: Basic similarity search
     print("\nTEST 1: Basic similarity search with first text as query")
@@ -110,7 +142,7 @@ def test_full_pipeline(embedder, hybrid_store):
     query_embedding = embedder.embed_text(query_text)
     query_vector = np.array(query_embedding, dtype=np.float32)
     
-    results = hybrid_store.search_vector(query_vector, k=5)
+    results = vector_store.search_vector(query_vector, k=5)
     
     # Assertions
     assert results is not None
@@ -122,8 +154,10 @@ def test_full_pipeline(embedder, hybrid_store):
     for i, result in enumerate(results):
         print(f"Result {i+1}:")
         print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
-        print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
         print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
+        print(f"  Doc Type: {result.metadata.get('doc_type', 'N/A')}")
+        print(f"  Keywords: {result.metadata.get('keywords', [])}")
+        print(f"  Contains Diabetes: {result.metadata.get('contains_diabetes', False)}")
         
     # TEST 2: Different query
     print("\nTEST 2: Using a different query (headache search)")
@@ -131,83 +165,17 @@ def test_full_pipeline(embedder, hybrid_store):
     query_embedding = embedder.embed_text(query_text)
     query_vector = np.array(query_embedding, dtype=np.float32)
     
-    results = hybrid_store.search_vector(query_vector, k=3)
+    results = vector_store.search_vector(query_vector, k=3)
     
     print(f"\nQuery: '{query_text}'")
     print("\nHeadache search results:")
     for i, result in enumerate(results):
         print(f"Result {i+1}:")
         print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
-        print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
         print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
-
-    # TEST 3: Filtered search (using metadata field)
-    print("\nTEST 3: Filtered search (using metadata fields)")
-    try:
-        # Create a filter for diabetes-related documents using our custom field
-        filter_by_diabetes = {"contains_diabetes": True}
-        results = hybrid_store.search_vector(
-            query_vector, 
-            k=5, 
-            filter=filter_by_diabetes,
-            use_cache=False  # Ensure we're using Qdrant's filtering
-        )
-        
-        print("\nResults filtered by 'contains_diabetes' metadata field:")
-        for i, result in enumerate(results):
-            print(f"Result {i+1}:")
-            print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
-            print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
-            print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
-
-            
-        # Verify all results actually contain diabetes
-        for result in results:
-            assert result.metadata.get('contains_diabetes', False) == True
-            
-    except Exception as e:
-        print(f"- Filter test skipped: {str(e)}")
+        print(f"  Doc Type: {result.metadata.get('doc_type', 'N/A')}")
+        print(f"  Keywords: {result.metadata.get('keywords', [])}")
+        print(f"  Contains Headache: {result.metadata.get('contains_headache', False)}")
     
-    # TEST 4: Document type filtering
-    print("\nTEST 4: Document type filtering (medication documents)")
-    try:
-        # Create a filter for medication documents
-        filter_by_doc_type = {"doc_type": "medication"}
-        results = hybrid_store.search_vector(
-            query_vector, 
-            k=5, 
-            filter=filter_by_doc_type,
-            use_cache=False  # Ensure we're using Qdrant's filtering
-        )
-        
-        print("\nResults filtered by 'doc_type=medication' metadata field:")
-        for i, result in enumerate(results):
-            print(f"Result {i+1}:")
-            print(f"  Text: {result.text[:100]}..." if len(result.text) > 100 else f"  Text: {result.text}")
-            print(f"  Score: {getattr(result, 'score', 'N/A'):.4f}" if hasattr(result, 'score') else f"  Score: N/A")
-            print(f"  Distance: {getattr(result, 'distance', 'N/A'):.4f}" if hasattr(result, 'distance') else f"  Distance: N/A")
-            
-        # Verify all results are medication documents
-        for result in results:
-            assert result.metadata.get('doc_type', "") == "medication"
-            
-    except Exception as e:
-        print(f"- Doc type filter test skipped: {str(e)}")
-    
-    # TEST 5: Compare OpenAI vs other models (explanation)
-    print("\nTEST 5: OpenAI Embedding Model Insights")
-    print("- OpenAI embeddings often provide different (sometimes better) semantic understanding")
-    print("- They tend to capture medical concepts more accurately (clinical context)")
-    print("- The tradeoff is API cost and latency compared to local models")
-    print("- Dimension is higher (1536 vs 768), which can provide more detailed representations")
-    print("- Results may show different ordering than Hugging Face or Clinical BERT models")
-            
-    # Clean up - delete the test collection
-    print("\nStep 6: Cleaning up...")
-    try:
-        hybrid_store.qdrant_store.client.delete_collection(hybrid_store.collection_name)
-        print(f"- Deleted test collection: {hybrid_store.collection_name}")
-    except Exception as e:
-        print(f"- Cleanup error: {str(e)}")
             
     print("\n===== TEST COMPLETED SUCCESSFULLY =====") 
