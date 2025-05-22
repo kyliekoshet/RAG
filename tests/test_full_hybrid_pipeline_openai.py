@@ -58,6 +58,9 @@ def test_full_pipeline(embedder, vector_store):
         "Patient has been prescribed metformin to manage their type 2 diabetes. They are instructed to take the medication twice daily with meals and monitor their blood sugar levels regularly.",
         "Patient reports frequent headaches that have been occurring for the past few months. They describe the pain as throbbing and often accompanied by nausea and sensitivity to light.",
         "Patient has a family history of heart disease, with both parents having experienced heart attacks in their 60s. They are advised to maintain a healthy diet and exercise regularly to reduce their risk."
+        "Patient has been prescribed insulin injections to control their type 1 diabetes. The doctor recommended starting with a low dose of 10 units before meals and adjusting based on blood sugar readings. They were also prescribed glucagon for emergency situations where blood sugar drops too low.",
+        "Patient visited Madrid last week and reported that the hot and dry weather with temperatures reaching 35°C (95°F) exacerbated their asthma symptoms, requiring increased use of their rescue inhaler. They were advised to use their inhaler as needed and follow up with their doctor if symptoms persist.",
+        "A professional circus clown with over 20 years of experience performing at children's birthday parties and major circus events reported experiencing severe anxiety before shows, often requiring multiple costume changes and extensive makeup application, while also mentioning that the bright lights and loud music in the big top tent have been triggering migraine headaches after particularly long performances."
     ]
     print(f"- Prepared {len(texts)} clinical text samples")
 
